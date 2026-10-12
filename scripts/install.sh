@@ -5,7 +5,9 @@ set -e # Exit immediately if a command exits with a non-zero status
 ## $1 could be empty, so we need to disable this check
 #set -u # Treat unset variables as an error and exit
 set -o pipefail # Cause a pipeline to return the status of the last command that exited with a non-zero status
-CDN="https://cdn.coollabs.io/coolify"
+REPOSITORY_URL="${COOLIFY_REPOSITORY_URL:-https://github.com/MuntasirArafat/Minify.git}"
+REPOSITORY_BRANCH="${COOLIFY_REPOSITORY_BRANCH:-main}"
+REPOSITORY_DIR="/data/coolify/source/repository"
 DATE=$(date +"%Y%m%d-%H%M%S")
 
 VERSION="1.7"
@@ -73,13 +75,6 @@ INSTALLATION_LOG_WITH_DATE="/data/coolify/source/installation-${DATE}.log"
 
 exec > >(tee -a $INSTALLATION_LOG_WITH_DATE) 2>&1
 
-getAJoke() {
-    JOKES=$(curl -s --max-time 2 "https://v2.jokeapi.dev/joke/Programming?blacklistFlags=nsfw,religious,political,racist,sexist,explicit&format=txt&type=single" || true)
-    if [ "$JOKES" != "" ]; then
-        echo -e " - Until then, here's a joke for you:\n"
-        echo -e "$JOKES\n"
-    fi
-}
 OS_TYPE=$(grep -w "ID" /etc/os-release | cut -d "=" -f 2 | tr -d '"')
 ENV_FILE="/data/coolify/source/.env"
 
@@ -124,17 +119,7 @@ if [ "$OS_TYPE" = 'amzn' ]; then
     dnf install -y findutils >/dev/null
 fi
 
-LATEST_VERSION=$(curl --silent $CDN/versions.json | grep -i version | xargs | awk '{print $2}' | tr -d ',')
-LATEST_HELPER_VERSION=$(curl --silent $CDN/versions.json | grep -i version | xargs | awk '{print $6}' | tr -d ',')
-LATEST_REALTIME_VERSION=$(curl --silent $CDN/versions.json | grep -i version | xargs | awk '{print $8}' | tr -d ',')
-
-if [ -z "$LATEST_HELPER_VERSION" ]; then
-    LATEST_HELPER_VERSION=latest
-fi
-
-if [ -z "$LATEST_REALTIME_VERSION" ]; then
-    LATEST_REALTIME_VERSION=latest
-fi
+LATEST_VERSION="source"
 
 
 case "$OS_TYPE" in
@@ -145,21 +130,10 @@ arch | ubuntu | debian | raspbian | centos | fedora | rhel | ol | rocky | sles |
     ;;
 esac
 
-# Overwrite LATEST_VERSION if user pass a version number
-if [ "$1" != "" ]; then
-    LATEST_VERSION=$1
-    LATEST_VERSION="${LATEST_VERSION,,}"
-    LATEST_VERSION="${LATEST_VERSION#v}"
-fi
-
-
-
 echo -e "---------------------------------------------"
 echo "| Operating System  | $OS_TYPE $OS_VERSION"
 echo "| Docker            | $DOCKER_VERSION"
 echo "| Coolify           | $LATEST_VERSION"
-echo "| Helper            | $LATEST_HELPER_VERSION"
-echo "| Realtime          | $LATEST_REALTIME_VERSION"
 echo -e "---------------------------------------------\n"
 echo -e "1. Installing required packages (curl, wget, git, jq, openssl). "
 
@@ -291,7 +265,6 @@ fi
 echo -e "3. Check Docker Installation. "
 if ! [ -x "$(command -v docker)" ]; then
     echo " - Docker is not installed. Installing Docker. It may take a while."
-    getAJoke
     case "$OS_TYPE" in
         "almalinux")
             dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo >/dev/null 2>&1
@@ -453,11 +426,17 @@ else
     restart_docker_service
 fi
 
-echo -e "5. Download required files from CDN. "
-curl -fsSL $CDN/docker-compose.yml -o /data/coolify/source/docker-compose.yml
-curl -fsSL $CDN/docker-compose.prod.yml -o /data/coolify/source/docker-compose.prod.yml
-curl -fsSL $CDN/.env.production -o /data/coolify/source/.env.production
-curl -fsSL $CDN/upgrade.sh -o /data/coolify/source/upgrade.sh
+echo -e "5. Fetch application source from GitHub. "
+if [ ! -d "$REPOSITORY_DIR/.git" ]; then
+    git clone --depth 1 --branch "$REPOSITORY_BRANCH" "$REPOSITORY_URL" "$REPOSITORY_DIR"
+else
+    git -C "$REPOSITORY_DIR" fetch --depth 1 origin "$REPOSITORY_BRANCH"
+    git -C "$REPOSITORY_DIR" checkout -B "$REPOSITORY_BRANCH" FETCH_HEAD
+fi
+cp "$REPOSITORY_DIR/docker-compose.yml" /data/coolify/source/docker-compose.yml
+cp "$REPOSITORY_DIR/docker-compose.prod.yml" /data/coolify/source/docker-compose.prod.yml
+cp "$REPOSITORY_DIR/.env.production" /data/coolify/source/.env.production
+cp "$REPOSITORY_DIR/scripts/upgrade.sh" /data/coolify/source/upgrade.sh
 
 echo -e "6. Make backup of .env to .env-$DATE"
 
@@ -537,15 +516,11 @@ chmod -R 700 /data/coolify
 echo -e "9. Installing Coolify ($LATEST_VERSION)"
 echo -e " - It could take a while based on your server's performance, network speed, stars, etc."
 echo -e " - Please wait."
-getAJoke
-
-bash /data/coolify/source/upgrade.sh "${LATEST_VERSION:-latest}" "${LATEST_HELPER_VERSION:-latest}"
+bash /data/coolify/source/upgrade.sh
 echo " - Coolify installed successfully."
 rm -f $ENV_FILE-$DATE
 
 echo " - Waiting for 20 seconds for Coolify (database migrations) to be ready."
-getAJoke
-
 sleep 20
 echo -e "\033[0;35m
    ____                            _         _       _   _                 _

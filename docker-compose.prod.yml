@@ -1,6 +1,9 @@
 services:
   coolify:
-    image: "ghcr.io/coollabsio/coolify:${LATEST_IMAGE:-latest}"
+    image: "coolify-local:source"
+    build:
+      context: /data/coolify/source/repository
+      dockerfile: docker/production/Dockerfile
     volumes:
       - type: bind
         source: /data/coolify/source/.env
@@ -61,7 +64,10 @@ services:
       retries: 10
       timeout: 2s
   soketi:
-    image: 'ghcr.io/coollabsio/coolify-realtime:1.0.5'
+    image: 'coolify-realtime-local:source'
+    build:
+      context: /data/coolify/source/repository
+      dockerfile: docker/coolify-realtime/Dockerfile
     ports:
       - "${SOKETI_PORT:-6001}:6001"
       - "6002:6002"
